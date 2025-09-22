@@ -14,7 +14,106 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      pad_cursors: {
+        Row: {
+          color: string
+          id: string
+          pad_id: string
+          position: number
+          session_id: string
+          updated_at: string
+          user_name: string | null
+        }
+        Insert: {
+          color?: string
+          id?: string
+          pad_id: string
+          position?: number
+          session_id: string
+          updated_at?: string
+          user_name?: string | null
+        }
+        Update: {
+          color?: string
+          id?: string
+          pad_id?: string
+          position?: number
+          session_id?: string
+          updated_at?: string
+          user_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pad_cursors_pad_id_fkey"
+            columns: ["pad_id"]
+            isOneToOne: false
+            referencedRelation: "pads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pads: {
+        Row: {
+          content: string
+          created_at: string
+          creator_session: string | null
+          id: string
+          password: string | null
+          updated_at: string
+        }
+        Insert: {
+          content?: string
+          created_at?: string
+          creator_session?: string | null
+          id: string
+          password?: string | null
+          updated_at?: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          creator_session?: string | null
+          id?: string
+          password?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      subpads: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          name: string
+          pad_id: string
+          updated_at: string
+        }
+        Insert: {
+          content?: string
+          created_at?: string
+          id?: string
+          name: string
+          pad_id: string
+          updated_at?: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          name?: string
+          pad_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subpads_pad_id_fkey"
+            columns: ["pad_id"]
+            isOneToOne: false
+            referencedRelation: "pads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
