@@ -1,365 +1,223 @@
-import { useState, useEffect, useRef } from "react";
-import { useParams } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
-import { useToast } from "@/hooks/use-toast";
-import { useRealtimeCollaboration } from "@/hooks/useRealtimeCollaboration";
-import { useRealtimeContent } from "@/hooks/useRealtimeContent";
-import hljs from "highlight.js";
-import "highlight.js/styles/github-dark.css";
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import hljs from 'highlight.js';
+import 'highlight.js/styles/github-dark.css';
 
-interface Pad {
-  id: string;
-  content: string;
-  password?: string;
-  creator_session?: string;
-  updated_at: string;
+interface PadEditorProps {
+  padId: string;
+  onContentChange?: (content: string) => void;
 }
 
-interface Subpad {
+interface Cursor {
   id: string;
-  pad_id: string;
-  name: string;
-  content: string;
+  position: number;
+  color: string;
+  user_name?: string;
 }
 
-export default function PadEditor() {
-  const { padName, subpadName } = useParams();
-  const [pad, setPad] = useState<Pad | null>(null);
-  const [subpads, setSubpads] = useState<Subpad[]>([]);
+export const PadEditor = ({ padId, onContentChange }: PadEditorProps) => {
+  const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
-  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
-  const [password, setPassword] = useState("");
-  const [sessionId] = useState(() => `session_${Date.now()}_${Math.random()}`);
-  const [cursorPosition, setCursorPosition] = useState(0);
+  const [cursors, setCursors] = useState<Cursor[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { toast } = useToast();
+  const preRef = useRef<HTMLPreElement>(null);
+  const sessionId = useRef(Math.random().toString(36).substring(7));
 
-  // Real-time collaboration hooks
-  const { cursors, onlineUsers, updateCursor, removeCursor } = useRealtimeCollaboration(
-    padName || "", 
-    sessionId
-  );
-
-  const { content, setContent: setRealtimeContent, isConnected } = useRealtimeContent(
-    padName || "",
-    pad?.content || "",
-    (newContent) => {
-      // Handle incoming content updates
-      if (textareaRef.current) {
-        const textarea = textareaRef.current;
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-        
-        // Preserve cursor position when content updates
-        setTimeout(() => {
-          textarea.setSelectionRange(start, end);
-        }, 0);
-      }
-    }
-  );
-
-  // Load pad data
-  useEffect(() => {
-    if (!padName) return;
-    loadPad();
-  }, [padName]);
-
-  // Auto-save content with real-time sync
-  useEffect(() => {
-    if (!pad || content === pad.content) return;
-    
-    const timer = setTimeout(() => {
-      savePad();
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [content, pad]);
-
-  // Track cursor position for collaboration
-  useEffect(() => {
-    if (textareaRef.current && padName) {
-      const textarea = textareaRef.current;
-      const handleSelectionChange = () => {
-        const position = textarea.selectionStart;
-        setCursorPosition(position);
-        updateCursor(position);
-      };
-
-      textarea.addEventListener('selectionchange', handleSelectionChange);
-      textarea.addEventListener('keyup', handleSelectionChange);
-      textarea.addEventListener('mouseup', handleSelectionChange);
-
-      return () => {
-        textarea.removeEventListener('selectionchange', handleSelectionChange);
-        textarea.removeEventListener('keyup', handleSelectionChange);
-        textarea.removeEventListener('mouseup', handleSelectionChange);
-        removeCursor();
-      };
-    }
-  }, [padName, updateCursor, removeCursor]);
-
-  // Apply syntax highlighting
-  useEffect(() => {
-    if (textareaRef.current) {
-      const highlighted = hljs.highlightAuto(content).value;
-      // Update syntax highlighting overlay (simplified version)
-    }
-  }, [content]);
-
-  const loadPad = async () => {
-    if (!padName) return;
-    
-    setLoading(true);
+  // Load pad content
+  const loadPad = useCallback(async () => {
     try {
-      const { data: existingPad } = await supabase
-        .from("pads")
-        .select("*")
-        .eq("id", padName)
+      const { data, error } = await supabase
+        .from('pads')
+        .select('content')
+        .eq('id', padId)
         .single();
 
-      if (existingPad) {
-        setPad(existingPad);
-        setRealtimeContent(existingPad.content);
-        loadSubpads();
-      } else {
-        // Create new pad
-        const newPad = {
-          id: padName,
-          content: "",
-          creator_session: sessionId,
-        };
+      if (error && error.code === 'PGRST116') {
+        // Pad doesn't exist, create it
+        const { error: insertError } = await supabase
+          .from('pads')
+          .insert({ id: padId, content: '', creator_session: sessionId.current });
         
-        const { data, error } = await supabase
-          .from("pads")
-          .insert(newPad)
-          .select()
-          .single();
-
-        if (error) {
-          toast({
-            title: "Error",
-            description: "Failed to create pad",
-            variant: "destructive",
-          });
-        } else {
-          setPad(data);
-          setRealtimeContent("");
+        if (!insertError) {
+          setContent('');
         }
+      } else if (data) {
+        setContent(data.content);
       }
-    } catch (error) {
-      console.error("Error loading pad:", error);
+    } catch (err) {
+      console.error('Error loading pad:', err);
     } finally {
       setLoading(false);
     }
+  }, [padId]);
+
+  // Update pad content
+  const updatePad = useCallback(async (newContent: string) => {
+    try {
+      await supabase
+        .from('pads')
+        .update({ content: newContent })
+        .eq('id', padId);
+      
+      onContentChange?.(newContent);
+    } catch (err) {
+      console.error('Error updating pad:', err);
+    }
+  }, [padId, onContentChange]);
+
+  // Update cursor position
+  const updateCursor = useCallback(async (position: number) => {
+    try {
+      await supabase
+        .from('pad_cursors')
+        .upsert({
+          pad_id: padId,
+          session_id: sessionId.current,
+          position,
+          color: '#10b981'
+        });
+    } catch (err) {
+      console.error('Error updating cursor:', err);
+    }
+  }, [padId]);
+
+  // Handle content changes
+  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newContent = e.target.value;
+    setContent(newContent);
+    updatePad(newContent);
+    
+    // Update cursor position
+    const cursorPos = e.target.selectionStart;
+    updateCursor(cursorPos);
   };
 
-  const loadSubpads = async () => {
-    if (!padName) return;
-
-    const { data } = await supabase
-      .from("subpads")
-      .select("*")
-      .eq("pad_id", padName)
-      .order("created_at", { ascending: true });
-
-    if (data) {
-      setSubpads(data);
+  // Handle cursor movement
+  const handleCursorMove = () => {
+    if (textareaRef.current) {
+      const cursorPos = textareaRef.current.selectionStart;
+      updateCursor(cursorPos);
     }
   };
 
-  const savePad = async () => {
-    if (!pad) return;
-
-    // Check if this is someone else's pad and needs password
-    if (pad.creator_session !== sessionId && pad.password && !sessionStorage.getItem(`auth_${padName}`)) {
-      setShowPasswordDialog(true);
-      return;
+  // Highlight syntax
+  useEffect(() => {
+    if (preRef.current && content) {
+      const highlighted = hljs.highlightAuto(content);
+      preRef.current.innerHTML = highlighted.value;
     }
+  }, [content]);
 
-    const { error } = await supabase
-      .from("pads")
-      .update({ content })
-      .eq("id", padName);
+  // Load pad on mount
+  useEffect(() => {
+    loadPad();
+  }, [loadPad]);
 
-    if (error) {
-      console.error("Save error:", error);
-      toast({
-        title: "Save failed",
-        description: "Could not save changes",
-        variant: "destructive",
-      });
-    }
-  };
+  // Subscribe to real-time updates
+  useEffect(() => {
+    const channel = supabase
+      .channel(`pad:${padId}`)
+      .on(
+        'postgres_changes',
+        { 
+          event: 'UPDATE', 
+          schema: 'public', 
+          table: 'pads',
+          filter: `id=eq.${padId}`
+        },
+        (payload) => {
+          if (payload.new.content !== content) {
+            setContent(payload.new.content);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'pad_cursors',
+          filter: `pad_id=eq.${padId}`
+        },
+        () => {
+          // Reload cursors
+          loadCursors();
+        }
+      )
+      .subscribe();
 
-  const handlePasswordSubmit = async () => {
-    if (!pad || !password) return;
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [padId, content]);
 
-    // In a real app, you'd verify the password here
-    // For now, just assume it's correct if provided
-    sessionStorage.setItem(`auth_${padName}`, "true");
-    setShowPasswordDialog(false);
-    setPassword("");
-    await savePad();
-  };
-
-  const createSubpad = async (name: string) => {
-    if (!padName || !name.trim()) return;
-
-    const { error } = await supabase
-      .from("subpads")
-      .insert({
-        pad_id: padName,
-        name: name.trim(),
-        content: "",
-      });
-
-    if (!error) {
-      loadSubpads();
+  const loadCursors = async () => {
+    try {
+      const { data } = await supabase
+        .from('pad_cursors')
+        .select('*')
+        .eq('pad_id', padId)
+        .neq('session_id', sessionId.current);
+      
+      if (data) {
+        setCursors(data);
+      }
+    } catch (err) {
+      console.error('Error loading cursors:', err);
     }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex h-full items-center justify-center">
         <div className="text-muted-foreground">Loading pad...</div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen bg-background">
-      {/* Left Sidebar */}
-      <div className="w-64 bg-sidebar border-r border-sidebar-border p-4">
-        <div className="mb-4">
-          <h2 className="text-sm font-medium text-sidebar-foreground mb-2">
-            /{padName}
-          </h2>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const name = prompt("Subpad name:");
-              if (name) createSubpad(name);
+    <div className="relative h-full">
+      <div className="relative h-full">
+        <textarea
+          ref={textareaRef}
+          value={content}
+          onChange={handleContentChange}
+          onSelect={handleCursorMove}
+          onKeyUp={handleCursorMove}
+          onClick={handleCursorMove}
+          placeholder={`Start typing in ${padId}...`}
+          className="absolute inset-0 w-full h-full p-4 bg-transparent text-transparent caret-primary resize-none border-none outline-none font-mono text-sm leading-relaxed z-10"
+          style={{ color: 'transparent', background: 'transparent' }}
+        />
+        <pre
+          ref={preRef}
+          className="absolute inset-0 w-full h-full p-4 bg-background text-foreground font-mono text-sm leading-relaxed overflow-auto pointer-events-none z-0"
+          style={{ margin: 0 }}
+        />
+        
+        {/* Render other users' cursors */}
+        {cursors.map((cursor) => (
+          <div
+            key={cursor.id}
+            className="editor-cursor-other"
+            style={{
+              backgroundColor: cursor.color,
+              // Position calculation would need more sophisticated logic
+              top: '1rem',
+              left: `${cursor.position * 0.5 + 1}rem`,
             }}
-            className="w-full"
           >
-            + New Subpad
-          </Button>
-        </div>
-        
-        <div className="space-y-1">
-          <button
-            className="w-full text-left px-2 py-1 rounded text-sm bg-sidebar-accent text-sidebar-accent-foreground"
-            onClick={() => window.location.href = `/${padName}`}
-          >
-            Main
-          </button>
-          {subpads.map((subpad) => (
-            <button
-              key={subpad.id}
-              className="w-full text-left px-2 py-1 rounded text-sm text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              onClick={() => window.location.href = `/${padName}/${subpad.name}`}
-            >
-              {subpad.name}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Main Editor */}
-      <div className="flex-1 flex flex-col">
-        <div className="border-b border-border p-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-semibold">/{padName}{subpadName ? `/${subpadName}` : ""}</h1>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <span>Collaborative text editor • Auto-saves</span>
-              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-                <span>{isConnected ? 'Connected' : 'Disconnected'}</span>
-              </div>
-              {onlineUsers.length > 0 && (
-                <Badge variant="secondary">
-                  {onlineUsers.length} user{onlineUsers.length !== 1 ? 's' : ''} online
-                </Badge>
-              )}
-            </div>
-          </div>
-        </div>
-        
-        <div className="flex-1 p-4">
-          <div className="relative h-full">
-            <textarea
-              ref={textareaRef}
-              value={content}
-              onChange={(e) => setRealtimeContent(e.target.value)}
-              placeholder="Start typing... This pad supports markdown, code, and real-time collaboration."
-              className="w-full h-full bg-background border border-input rounded-md p-4 font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring relative z-10"
-              style={{
-                tabSize: 2,
-                whiteSpace: "pre",
-                overflowWrap: "normal",
-              }}
-            />
-            
-            {/* Render other users' cursors */}
-            {cursors.map((cursor) => (
-              <div
-                key={cursor.id}
-                className="absolute pointer-events-none z-20"
-                style={{
-                  left: `${Math.min(cursor.position * 0.6, 95)}%`, // Simple position approximation
-                  top: `${Math.floor(cursor.position / 80) * 1.2 + 20}px`,
-                  color: cursor.color,
-                }}
+            {cursor.user_name && (
+              <div 
+                className="absolute -top-6 left-0 px-2 py-1 text-xs rounded"
+                style={{ backgroundColor: cursor.color, color: 'white' }}
               >
-                <div 
-                  className="w-0.5 h-5 opacity-80"
-                  style={{ backgroundColor: cursor.color }}
-                />
-                <div 
-                  className="text-xs px-1 py-0.5 rounded text-white whitespace-nowrap"
-                  style={{ backgroundColor: cursor.color }}
-                >
-                  {cursor.user_name || `User ${cursor.session_id.slice(-4)}`}
-                </div>
+                {cursor.user_name}
               </div>
-            ))}
+            )}
           </div>
-        </div>
+        ))}
       </div>
-
-      {/* Password Dialog */}
-      <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Password Required</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              This pad is password protected. Enter the password to edit.
-            </p>
-            <Input
-              type="password"
-              placeholder="Enter password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyPress={(e) => e.key === "Enter" && handlePasswordSubmit()}
-            />
-            <div className="flex gap-2">
-              <Button onClick={handlePasswordSubmit} disabled={!password}>
-                Unlock
-              </Button>
-              <Button variant="outline" onClick={() => setShowPasswordDialog(false)}>
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
-}
+};

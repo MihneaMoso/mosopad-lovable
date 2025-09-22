@@ -4,8 +4,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
-import Pad from "./pages/Pad";
 import NotFound from "./pages/NotFound";
+import Pad from "./pages/Pad";
+import Welcome from "./pages/Welcome";
 
 const queryClient = new QueryClient();
 
@@ -16,9 +17,9 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/:padName" element={<Pad />} />
-          <Route path="/:padName/:subpadName" element={<Pad />} />
+          <Route path="/" element={<Welcome />} />
+          <Route path="/welcome" element={<Welcome />} />
+          <Route path="/:padId" element={<Pad />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
