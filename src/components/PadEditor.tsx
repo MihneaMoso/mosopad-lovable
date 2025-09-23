@@ -176,7 +176,7 @@ export const PadEditor = ({ padId, onContentChange }: PadEditorProps) => {
   }
 
   return (
-    <div className="relative h-full">
+    <div className="relative h-full w-full">
       <div className="relative h-full">
         <textarea
           ref={textareaRef}
@@ -186,13 +186,27 @@ export const PadEditor = ({ padId, onContentChange }: PadEditorProps) => {
           onKeyUp={handleCursorMove}
           onClick={handleCursorMove}
           placeholder={`Start typing in ${padId}...`}
-          className="absolute inset-0 w-full h-full p-4 bg-transparent text-transparent caret-primary resize-none border-none outline-none font-mono text-sm leading-relaxed z-10"
-          style={{ color: 'transparent', background: 'transparent' }}
+          className="absolute inset-0 w-full h-full p-2 md:p-4 bg-transparent text-transparent caret-primary resize-none border-none outline-none font-mono text-sm md:text-base leading-relaxed z-10 touch-manipulation"
+          style={{ 
+            color: 'transparent', 
+            background: 'transparent',
+            unicodeBidi: 'plaintext',
+            fontFeatureSettings: '"liga" 1, "calt" 1'
+          }}
+          spellCheck={false}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          data-gramm="false"
         />
         <pre
           ref={preRef}
-          className="absolute inset-0 w-full h-full p-4 bg-background text-foreground font-mono text-sm leading-relaxed overflow-auto pointer-events-none z-0"
-          style={{ margin: 0 }}
+          className="absolute inset-0 w-full h-full p-2 md:p-4 bg-background text-foreground font-mono text-sm md:text-base leading-relaxed overflow-auto pointer-events-none z-0 whitespace-pre-wrap break-words"
+          style={{ 
+            margin: 0,
+            unicodeBidi: 'plaintext',
+            fontFeatureSettings: '"liga" 1, "calt" 1'
+          }}
         />
         
         {/* Render other users' cursors */}
@@ -209,7 +223,7 @@ export const PadEditor = ({ padId, onContentChange }: PadEditorProps) => {
           >
             {cursor.user_name && (
               <div 
-                className="absolute -top-6 left-0 px-2 py-1 text-xs rounded"
+                className="absolute -top-6 left-0 px-2 py-1 text-xs rounded whitespace-nowrap"
                 style={{ backgroundColor: cursor.color, color: 'white' }}
               >
                 {cursor.user_name}

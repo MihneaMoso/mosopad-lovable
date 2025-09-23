@@ -3,6 +3,19 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Plus, FileText } from 'lucide-react';
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  useSidebar,
+} from '@/components/ui/sidebar';
 
 interface SubPad {
   id: string;
@@ -21,6 +34,8 @@ export const PadSidebar = ({ padId, currentSubpad, onSubpadSelect }: PadSidebarP
   const [newSubpadName, setNewSubpadName] = useState('');
   const [showInput, setShowInput] = useState(false);
   const [loading, setLoading] = useState(true);
+  const { state } = useSidebar();
+  const isCollapsed = state === "collapsed";
 
   // Load subpads
   const loadSubpads = async () => {
@@ -96,30 +111,35 @@ export const PadSidebar = ({ padId, currentSubpad, onSubpadSelect }: PadSidebarP
 
   if (loading) {
     return (
-      <div className="w-64 bg-sidebar border-r border-sidebar-border p-4">
-        <div className="text-sidebar-foreground">Loading...</div>
-      </div>
+      <Sidebar>
+        <SidebarContent>
+          <div className="p-4 text-sidebar-foreground">Loading...</div>
+        </SidebarContent>
+      </Sidebar>
     );
   }
 
   return (
-    <div className="w-64 bg-sidebar border-r border-sidebar-border flex flex-col">
-      <div className="p-4 border-b border-sidebar-border">
+    <Sidebar className="border-r border-sidebar-border">
+      <SidebarHeader className="p-4 border-b border-sidebar-border">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sidebar-foreground font-semibold">
-            /{padId}
-          </h2>
+          {!isCollapsed && (
+            <h2 className="text-sidebar-foreground font-semibold truncate">
+              /{padId}
+            </h2>
+          )}
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setShowInput(true)}
-            className="text-sidebar-foreground hover:bg-sidebar-accent"
+            className="text-sidebar-foreground hover:bg-sidebar-accent shrink-0"
+            title="Add subpad"
           >
             <Plus className="h-4 w-4" />
           </Button>
         </div>
 
-        {showInput && (
+        {showInput && !isCollapsed && (
           <div className="flex gap-2 mb-4">
             <Input
               value={newSubpadName}
@@ -134,50 +154,52 @@ export const PadSidebar = ({ padId, currentSubpad, onSubpadSelect }: PadSidebarP
             />
           </div>
         )}
-      </div>
+      </SidebarHeader>
 
-      <div className="flex-1 overflow-auto">
-        {/* Main pad */}
-        <div className="p-2">
-          <Button
-            variant={!currentSubpad ? "secondary" : "ghost"}
-            className={`w-full justify-start text-left ${
-              !currentSubpad 
-                ? "bg-sidebar-accent text-sidebar-accent-foreground" 
-                : "text-sidebar-foreground hover:bg-sidebar-accent"
-            }`}
-            onClick={() => onSubpadSelect('')}
-          >
-            <FileText className="h-4 w-4 mr-2" />
-            Main
-          </Button>
-        </div>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel>Files</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={!currentSubpad}
+                  onClick={() => onSubpadSelect('')}
+                >
+                  <button className="w-full">
+                    <FileText className="h-4 w-4" />
+                    {!isCollapsed && <span>Main</span>}
+                  </button>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              
+              {subpads.map((subpad) => (
+                <SidebarMenuItem key={subpad.id}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={currentSubpad === subpad.name}
+                    onClick={() => onSubpadSelect(subpad.name)}
+                  >
+                    <button className="w-full">
+                      <FileText className="h-4 w-4" />
+                      {!isCollapsed && <span className="truncate">{subpad.name}</span>}
+                    </button>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
 
-        {/* Subpads */}
-        <div className="px-2">
-          {subpads.map((subpad) => (
-            <Button
-              key={subpad.id}
-              variant={currentSubpad === subpad.name ? "secondary" : "ghost"}
-              className={`w-full justify-start text-left mb-1 ${
-                currentSubpad === subpad.name
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground" 
-                  : "text-sidebar-foreground hover:bg-sidebar-accent"
-              }`}
-              onClick={() => onSubpadSelect(subpad.name)}
-            >
-              <FileText className="h-4 w-4 mr-2" />
-              {subpad.name}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      <div className="p-4 border-t border-sidebar-border">
-        <div className="text-xs text-sidebar-foreground opacity-60">
-          Share this pad: {window.location.host}/{padId}
-        </div>
-      </div>
-    </div>
+      <SidebarFooter className="p-4 border-t border-sidebar-border">
+        {!isCollapsed && (
+          <div className="text-xs text-sidebar-foreground opacity-60 break-all">
+            Share: {window.location.host}/{padId}
+          </div>
+        )}
+      </SidebarFooter>
+    </Sidebar>
   );
 };
