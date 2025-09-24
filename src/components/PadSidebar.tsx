@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useSession } from '@/hooks/useSession';
+import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Plus, FileText } from 'lucide-react';
+import { Plus, FileText, Lock } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -34,23 +36,47 @@ export const PadSidebar = ({ padId, currentSubpad, onSubpadSelect }: PadSidebarP
   const [newSubpadName, setNewSubpadName] = useState('');
   const [showInput, setShowInput] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isOwner, setIsOwner] = useState(false);
+  const [padExists, setPadExists] = useState(false);
   const { state } = useSidebar();
+  const { sessionId } = useSession();
+  const { toast } = useToast();
   const isCollapsed = state === "collapsed";
 
-  // Load subpads
-  const loadSubpads = async () => {
+  // Check pad ownership and load subpads
+  const loadPadAndSubpads = async () => {
+    if (!sessionId) return;
+    
     try {
-      const { data, error } = await supabase
+      // Check pad ownership
+      const { data: padData } = await supabase
+        .from('pads')
+        .select('creator_session')
+        .eq('id', padId)
+        .single();
+
+      if (padData) {
+        setPadExists(true);
+        const padIsOwned = padData.creator_session === sessionId;
+        const padIsPublic = !padData.creator_session || padData.creator_session === '';
+        setIsOwner(padIsOwned || padIsPublic);
+      } else {
+        setPadExists(false);
+        setIsOwner(true); // New pads can be created by anyone
+      }
+
+      // Load subpads
+      const { data: subpadData, error } = await supabase
         .from('subpads')
         .select('*')
         .eq('pad_id', padId)
         .order('created_at', { ascending: true });
 
-      if (!error && data) {
-        setSubpads(data);
+      if (!error && subpadData) {
+        setSubpads(subpadData);
       }
     } catch (err) {
-      console.error('Error loading subpads:', err);
+      console.error('Error loading pad and subpads:', err);
     } finally {
       setLoading(false);
     }
@@ -59,6 +85,17 @@ export const PadSidebar = ({ padId, currentSubpad, onSubpadSelect }: PadSidebarP
   // Create new subpad
   const createSubpad = async () => {
     if (!newSubpadName.trim()) return;
+    
+    if (!isOwner) {
+      toast({
+        title: "Access denied",
+        description: "You don't have permission to create subpads in this pad.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!sessionId) return;
 
     try {
       const { data, error } = await supabase
@@ -66,7 +103,8 @@ export const PadSidebar = ({ padId, currentSubpad, onSubpadSelect }: PadSidebarP
         .insert({
           pad_id: padId,
           name: newSubpadName.trim(),
-          content: ''
+          content: '',
+          creator_session: sessionId
         })
         .select()
         .single();
@@ -76,15 +114,28 @@ export const PadSidebar = ({ padId, currentSubpad, onSubpadSelect }: PadSidebarP
         setNewSubpadName('');
         setShowInput(false);
         onSubpadSelect(data.name);
+      } else {
+        toast({
+          title: "Creation failed",
+          description: "Failed to create subpad. Please try again.",
+          variant: "destructive",
+        });
       }
     } catch (err) {
       console.error('Error creating subpad:', err);
+      toast({
+        title: "Creation failed",
+        description: "Failed to create subpad. Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
   useEffect(() => {
-    loadSubpads();
-  }, [padId]);
+    if (sessionId) {
+      loadPadAndSubpads();
+    }
+  }, [padId, sessionId]);
 
   // Subscribe to real-time updates
   useEffect(() => {
@@ -99,7 +150,7 @@ export const PadSidebar = ({ padId, currentSubpad, onSubpadSelect }: PadSidebarP
           filter: `pad_id=eq.${padId}`
         },
         () => {
-          loadSubpads();
+          loadPadAndSubpads();
         }
       )
       .subscribe();
@@ -109,7 +160,7 @@ export const PadSidebar = ({ padId, currentSubpad, onSubpadSelect }: PadSidebarP
     };
   }, [padId]);
 
-  if (loading) {
+  if (loading || !sessionId) {
     return (
       <Sidebar>
         <SidebarContent>
@@ -124,22 +175,30 @@ export const PadSidebar = ({ padId, currentSubpad, onSubpadSelect }: PadSidebarP
       <SidebarHeader className="p-4 border-b border-sidebar-border">
         <div className="flex items-center justify-between mb-4">
           {!isCollapsed && (
-            <h2 className="text-sidebar-foreground font-semibold truncate">
-              /{padId}
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sidebar-foreground font-semibold truncate">
+                /{padId}
+              </h2>
+              {!isOwner && (
+                <div title="Read-only access">
+                  <Lock className="h-3 w-3 text-muted-foreground" />
+                </div>
+              )}
+            </div>
           )}
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setShowInput(true)}
             className="text-sidebar-foreground hover:bg-sidebar-accent shrink-0"
-            title="Add subpad"
+            title={isOwner ? "Add subpad" : "Read-only access"}
+            disabled={!isOwner}
           >
             <Plus className="h-4 w-4" />
           </Button>
         </div>
 
-        {showInput && !isCollapsed && (
+        {showInput && !isCollapsed && isOwner && (
           <div className="flex gap-2 mb-4">
             <Input
               value={newSubpadName}

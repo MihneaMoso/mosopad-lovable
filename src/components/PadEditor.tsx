@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useSession } from '@/hooks/useSession';
+import { useToast } from '@/hooks/use-toast';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
 
@@ -19,16 +21,21 @@ export const PadEditor = ({ padId, onContentChange }: PadEditorProps) => {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [cursors, setCursors] = useState<Cursor[]>([]);
+  const [isOwner, setIsOwner] = useState(false);
+  const [isReadOnly, setIsReadOnly] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
-  const sessionId = useRef(Math.random().toString(36).substring(7));
+  const { sessionId } = useSession();
+  const { toast } = useToast();
 
-  // Load pad content
+  // Load pad content and check ownership
   const loadPad = useCallback(async () => {
+    if (!sessionId) return;
+    
     try {
       const { data, error } = await supabase
         .from('pads')
-        .select('content')
+        .select('content, creator_session')
         .eq('id', padId)
         .single();
 
@@ -36,53 +43,98 @@ export const PadEditor = ({ padId, onContentChange }: PadEditorProps) => {
         // Pad doesn't exist, create it
         const { error: insertError } = await supabase
           .from('pads')
-          .insert({ id: padId, content: '', creator_session: sessionId.current });
+          .insert({ id: padId, content: '', creator_session: sessionId });
         
         if (!insertError) {
           setContent('');
+          setIsOwner(true);
+          setIsReadOnly(false);
         }
       } else if (data) {
         setContent(data.content);
+        const padIsOwned = data.creator_session === sessionId;
+        const padIsPublic = !data.creator_session || data.creator_session === '';
+        
+        setIsOwner(padIsOwned);
+        setIsReadOnly(!padIsOwned && !padIsPublic);
+        
+        if (isReadOnly) {
+          toast({
+            title: "Read-only access",
+            description: "You can view this pad but cannot edit it.",
+            variant: "default",
+          });
+        }
       }
     } catch (err) {
       console.error('Error loading pad:', err);
     } finally {
       setLoading(false);
     }
-  }, [padId]);
+  }, [padId, sessionId, toast]);
 
-  // Update pad content
+  // Update pad content (only if owner or public pad)
   const updatePad = useCallback(async (newContent: string) => {
+    if (isReadOnly) {
+      toast({
+        title: "Access denied",
+        description: "You don't have permission to edit this pad.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
-      await supabase
+      const { error } = await supabase
         .from('pads')
         .update({ content: newContent })
         .eq('id', padId);
       
+      if (error) {
+        toast({
+          title: "Update failed",
+          description: "Failed to save changes. Please try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
       onContentChange?.(newContent);
     } catch (err) {
       console.error('Error updating pad:', err);
+      toast({
+        title: "Update failed",
+        description: "Failed to save changes. Please try again.",
+        variant: "destructive",
+      });
     }
-  }, [padId, onContentChange]);
+  }, [padId, onContentChange, isReadOnly, toast]);
 
   // Update cursor position
   const updateCursor = useCallback(async (position: number) => {
+    if (!sessionId) return;
+    
     try {
       await supabase
         .from('pad_cursors')
         .upsert({
           pad_id: padId,
-          session_id: sessionId.current,
+          session_id: sessionId,
           position,
           color: '#10b981'
         });
     } catch (err) {
       console.error('Error updating cursor:', err);
     }
-  }, [padId]);
+  }, [padId, sessionId]);
 
   // Handle content changes
   const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    if (isReadOnly) {
+      e.preventDefault();
+      return;
+    }
+    
     const newContent = e.target.value;
     setContent(newContent);
     updatePad(newContent);
@@ -157,7 +209,7 @@ export const PadEditor = ({ padId, onContentChange }: PadEditorProps) => {
         .from('pad_cursors')
         .select('*')
         .eq('pad_id', padId)
-        .neq('session_id', sessionId.current);
+        .neq('session_id', sessionId);
       
       if (data) {
         setCursors(data);
@@ -167,7 +219,7 @@ export const PadEditor = ({ padId, onContentChange }: PadEditorProps) => {
     }
   };
 
-  if (loading) {
+  if (loading || !sessionId) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-muted-foreground">Loading pad...</div>
@@ -177,6 +229,11 @@ export const PadEditor = ({ padId, onContentChange }: PadEditorProps) => {
 
   return (
     <div className="relative h-full w-full">
+      {isReadOnly && (
+        <div className="absolute top-2 right-2 z-20 bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200 px-3 py-1 rounded-md text-sm border border-amber-200 dark:border-amber-800">
+          Read-only
+        </div>
+      )}
       <div className="relative h-full">
         <textarea
           ref={textareaRef}
@@ -185,7 +242,7 @@ export const PadEditor = ({ padId, onContentChange }: PadEditorProps) => {
           onSelect={handleCursorMove}
           onKeyUp={handleCursorMove}
           onClick={handleCursorMove}
-          placeholder={`Start typing in ${padId}...`}
+          placeholder={isReadOnly ? "This pad is read-only" : `Start typing in ${padId}...`}
           className="absolute inset-0 w-full h-full p-2 md:p-4 bg-transparent text-transparent caret-primary resize-none border-none outline-none font-mono text-sm md:text-base leading-relaxed z-10 touch-manipulation"
           style={{ 
             color: 'transparent', 
@@ -198,6 +255,7 @@ export const PadEditor = ({ padId, onContentChange }: PadEditorProps) => {
           autoCorrect="off"
           autoCapitalize="off"
           data-gramm="false"
+          readOnly={isReadOnly}
         />
         <pre
           ref={preRef}

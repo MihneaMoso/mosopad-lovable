@@ -43,13 +43,15 @@ export default function Pad() {
     if (!currentSubpad) return;
     
     try {
-      await supabase
+      const { error } = await supabase
         .from('subpads')
         .update({ content })
         .eq('pad_id', padId)
         .eq('name', currentSubpad);
       
-      setSubpadContent(content);
+      if (!error) {
+        setSubpadContent(content);
+      }
     } catch (err) {
       console.error('Error updating subpad:', err);
     }
