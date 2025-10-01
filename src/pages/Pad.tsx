@@ -1,15 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useParams, Navigate } from 'react-router-dom';
 import { PadEditor } from '@/components/PadEditor';
+import { SubpadEditor } from '@/components/SubpadEditor';
 import { PadSidebar } from '@/components/PadSidebar';
-import { supabase } from '@/integrations/supabase/client';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 export default function Pad() {
   const { padId } = useParams<{ padId: string }>();
   const [currentSubpad, setCurrentSubpad] = useState<string>('');
-  const [subpadContent, setSubpadContent] = useState<string>('');
   const isMobile = useIsMobile();
 
   if (!padId || padId.length === 0) {
@@ -17,44 +16,8 @@ export default function Pad() {
   }
 
   // Load subpad content when switching
-  const handleSubpadSelect = async (subpadName: string) => {
+  const handleSubpadSelect = (subpadName: string) => {
     setCurrentSubpad(subpadName);
-    
-    if (subpadName) {
-      try {
-        const { data } = await supabase
-          .from('subpads')
-          .select('content')
-          .eq('pad_id', padId)
-          .eq('name', subpadName)
-          .single();
-        
-        if (data) {
-          setSubpadContent(data.content);
-        }
-      } catch (err) {
-        console.error('Error loading subpad:', err);
-      }
-    }
-  };
-
-  // Update subpad content
-  const handleSubpadContentChange = async (content: string) => {
-    if (!currentSubpad) return;
-    
-    try {
-      const { error } = await supabase
-        .from('subpads')
-        .update({ content })
-        .eq('pad_id', padId)
-        .eq('name', currentSubpad);
-      
-      if (!error) {
-        setSubpadContent(content);
-      }
-    } catch (err) {
-      console.error('Error updating subpad:', err);
-    }
   };
 
   return (
@@ -82,10 +45,10 @@ export default function Pad() {
           
           <div className="flex-1 min-h-0">
             {currentSubpad ? (
-              <PadEditor
+              <SubpadEditor
                 key={`${padId}-${currentSubpad}`}
-                padId={`${padId}/${currentSubpad}`}
-                onContentChange={handleSubpadContentChange}
+                padId={padId}
+                subpadName={currentSubpad}
               />
             ) : (
               <PadEditor
